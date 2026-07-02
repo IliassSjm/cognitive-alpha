@@ -1,0 +1,9 @@
+numpy
+pandas
+pyarrow
+scipy
+matplotlib
+mplsoccer
+streamlit
+statsbombpy
+joblib
