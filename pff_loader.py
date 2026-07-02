@@ -29,14 +29,14 @@ SB_Y_MAX       = 80.0    # StatsBomb y-range (yards)
 
 # PFF game IDs for key matches (mapped from StatsBomb match IDs)
 PFF_KEY_MATCHES = {
-    10517: "🏆 Final — Argentina vs France",
-    10516: "🥉 3rd Place — Croatia vs Morocco",
-    10515: "🥇 Semi — France vs Morocco",
-    10514: "🥇 Semi — Argentina vs Croatia",
-    10513: "🏅 QF — England vs France",
-    10512: "🏅 QF — Morocco vs Portugal",
-    10511: "🏅 QF — Netherlands vs Argentina",
-    10510: "🏅 QF — Croatia vs Brazil",
+    10517: "Final — Argentina vs France",
+    10516: "3rd Place — Croatia vs Morocco",
+    10515: "Semi — France vs Morocco",
+    10514: "Semi — Argentina vs Croatia",
+    10513: "QF — England vs France",
+    10512: "QF — Morocco vs Portugal",
+    10511: "QF — Netherlands vs Argentina",
+    10510: "QF — Croatia vs Brazil",
 }
 
 

@@ -52,7 +52,7 @@ from tracking_analytics import analyse_match as analyse_tracking_match
 # ---- 0. PAGE CONFIG ----
 st.set_page_config(
     page_title="Cognitive Alpha",
-    page_icon="⚽",
+    page_icon="",
     layout="wide",
 )
 
@@ -62,13 +62,13 @@ PRESSING_DISTANCE = 2.0
 PRESSING_RADIUS   = 0.5
 
 KEY_MATCHES = {
-    3869685: "🏆 Final — Argentina vs France",
-    3869519: "🥇 Semi — Argentina vs Croatia",
-    3869552: "🥇 Semi — France vs Morocco",
-    3869354: "🏅 QF — England vs France",
-    3869321: "🏅 QF — Netherlands vs Argentina",
-    3869420: "🏅 QF — Croatia vs Brazil",
-    3869486: "🏅 QF — Morocco vs Portugal",
+    3869685: "Final — Argentina vs France",
+    3869519: "Semi — Argentina vs Croatia",
+    3869552: "Semi — France vs Morocco",
+    3869354: "QF — England vs France",
+    3869321: "QF — Netherlands vs Argentina",
+    3869420: "QF — Croatia vs Brazil",
+    3869486: "QF — Morocco vs Portugal",
     3869151: "⚔️ R16 — Argentina vs Australia",
     3869118: "⚔️ R16 — England vs Senegal",
     3869254: "⚔️ R16 — Portugal vs Switzerland",
@@ -77,7 +77,7 @@ KEY_MATCHES = {
     3869117: "⚔️ R16 — Netherlands vs USA",
     3869219: "⚔️ R16 — Japan vs Croatia",
     3869220: "⚔️ R16 — Morocco vs Spain",
-    3869684: "🥉 3rd Place — Croatia vs Morocco",
+    3869684: "3rd Place — Croatia vs Morocco",
 }
 
 # StatsBomb match ID → PFF game ID mapping
@@ -577,7 +577,7 @@ def create_tactical_animation(
         # Phase 4: Ball flight (60-80%)
         elif progress < 0.80:
             flight = (progress - 0.60) / 0.20
-            phase_text.set_text("⚽ Actual Pass")
+            phase_text.set_text("Actual Pass")
             ball_pos = ball_carrier_pos + flight * (
                 actual_recipient_pos - ball_carrier_pos
             )
@@ -995,7 +995,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("⚽ Cognitive Alpha: Quantifying Spatial Opportunity Cost")
+    st.title("Cognitive Alpha: Quantifying Spatial Opportunity Cost")
     st.caption(
         "2022 FIFA World Cup  ·  "
         "**Continuous Pitch Control** × **Interpolated xT** = **Spatial xEV**"
@@ -1051,7 +1051,7 @@ def main():
             )
         else:
             pass_type = "Ground Pass"  # unused — PFF auto-detects from ball_z
-            st.info("🎯 PFF mode: pass type auto-detected from ball Z-axis (z > 1.5m = lofted)")
+            st.info("PFF mode: pass type auto-detected from ball Z-axis (z > 1.5m = lofted)")
         st.markdown("---")
         with st.expander("⚙️ Model Details", expanded=False):
             st.markdown(
@@ -1086,7 +1086,7 @@ def main():
 
     # ── Tabs ───────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🗺️ Spatial Analysis", "Player Rankings", "🎬 Tactical Replay",
+        "🗺️ Spatial Analysis", "Player Rankings", "Tactical Replay",
         "📋 Match Report", "📡 Tracking Deep Dive"
     ])
 
@@ -1101,7 +1101,7 @@ def main():
             labels.append(f"{minute:3d}:{second:02d}  —  {pname} → {rname}")
         with st.sidebar:
             st.markdown("---")
-            st.header("🎯 Pass")
+            st.header("Pass")
             selected_idx = st.selectbox(
                 "Select a pass",
                 range(len(labels)),
@@ -1123,7 +1123,7 @@ def main():
 
         with st.sidebar:
             st.markdown("---")
-            st.header("🎯 Pass")
+            st.header("Pass")
             selected_idx = st.selectbox(
                 "Select a pass",
                 range(len(labels)),
@@ -1172,7 +1172,7 @@ def main():
                 )
 
                 # Metrics Row 1
-                traj = "🏈 Lofted" if spatial["pass_type"] == "Lofted Pass" else "⚽ Ground"
+                traj = "🏈 Lofted" if spatial["pass_type"] == "Lofted Pass" else "Ground"
                 st.markdown(f"#### 📡 PFF Tracking — {traj}")
                 c1, c2, c3 = st.columns(3)
                 with c1:
@@ -1221,7 +1221,7 @@ def main():
             fig, metrics, bc_pos, tm_pos, def_pos, actual_pos = result_data
 
             # Metrics: Continuous Spatial Arbitrage
-            traj_label = "🏈 Lofted" if pass_type == "Lofted Pass" else "⚽ Ground"
+            traj_label = "🏈 Lofted" if pass_type == "Lofted Pass" else "Ground"
             st.markdown(f"#### Continuous Spatial Arbitrage — {traj_label}")
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -1314,7 +1314,7 @@ def main():
             )
 
             # ── Scouting Archetype Matrix (Scatter Plot) ──────────
-            st.markdown("### 🎯 Scouting Archetype Matrix")
+            st.markdown("### Scouting Archetype Matrix")
             st.caption(
                 "X = Mean α (decision efficiency) · Y = Total xEV (offensive volume). "
                 "Players with ≥5 passes only. Colored by team."
@@ -1438,7 +1438,7 @@ def main():
 
     # ── TAB 3: Animated Tactical Replay ──────────────────────────
     with tab3:
-        st.subheader("🎬 Animated Tactical Replay")
+        st.subheader("Animated Tactical Replay")
 
         if use_pff and pff_passes is not None and not pff_passes.empty:
             # ── PFF 30-FPS TRACKING REPLAY ────────────────────────
