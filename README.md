@@ -1,5 +1,7 @@
 # Cognitive Alpha
 
+![ci](https://github.com/IliassSjm/cognitive-alpha/actions/workflows/ci.yml/badge.svg)
+
 Spatial decision quality in football. For every open-play pass of the 2022 FIFA World Cup, the model measures the gap between the pass the player actually chose and the best option that was physically available:
 
 ```
@@ -14,7 +16,7 @@ where the expected value of a target location combines five surfaces evaluated o
 
 **Expected Threat, trained from scratch** (`train_xt.py`). Markov-chain value iteration on StatsBomb event data: 125,566 open-play possession actions (251,132 after Y-axis mirroring) drawn from the 234,652-event log of all 64 matches. Failed passes are treated as absorbing states, so the transition matrix is turnover-aware. Converges in 100 iterations (Δ < 1e-8). The raw 12×8 grid correlates at r = 0.85 with Karun Singh's published Premier League grid, r = 0.93 after Gaussian smoothing — close enough to be sane, different enough to carry World Cup-specific structure. Smoothed and bilinearly interpolated to a continuous surface.
 
-**Pitch control** (`pitch_control.py`). Spearman-style (2018): kinematic time-to-arrival with reaction time and acceleration, squashed through a logistic sigmoid, fully vectorised over the grid (no per-cell Python loops). Extensions: per-player sprint speeds for known players (Mbappé is not a median defender), a ground/lofted ball toggle with distinct speeds and decay kernels, an offside mask that zeroes xEV beyond the second-last defender, and the survival penalty as exponential pressure decay.
+**Pitch control** (`pitch_control.py`). Spearman-style (2018): kinematic time-to-arrival with reaction time and acceleration, squashed through a logistic sigmoid, fully vectorised over the grid (no per-cell Python loops). Extensions: per-player sprint speeds for known players (Mbappé is not a median defender), a ground/lofted ball toggle with distinct speeds and decay kernels, an offside mask that assigns negative turnover value to any cell beyond the second-last defender, and the survival penalty as exponential pressure decay.
 
 **Data fusion** (`pff_loader.py`, `tracking_analytics.py`). Two sources under one coordinate system: StatsBomb 360 freeze-frames (via `statsbombpy`) and PFF FC 30 fps broadcast tracking, which supplies real player velocities and body orientation for the matches where it exists. The tracking data (~5 GB) is used under PFF's research access program and is not redistributed here; the code expects it under `External_Data/`.
 

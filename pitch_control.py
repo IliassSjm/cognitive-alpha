@@ -627,7 +627,7 @@ def compute_continuous_alpha(
     passer_velocity: np.ndarray | None = None,
 ) -> dict:
     """
-    Compute v6 constrained continuous spatial Cognitive Alpha.
+    Compute the constrained continuous spatial cognitive alpha.
 
     Constrained_xEV = PC × xT × xP_pass × xP_sprint × xP_survival
     α = Actual_xEV − Global_Optimal_xEV
