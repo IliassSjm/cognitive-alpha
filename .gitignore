@@ -1,5 +1,5 @@
-External_Data/
-tracking_cache/
+External_Data
+tracking_cache
 *.parquet
 __pycache__/
 *.pyc
