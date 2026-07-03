@@ -10,7 +10,9 @@ alpha = xEV(actual target) − xEV(optimal target)
 
 where the expected value of a target location combines five surfaces evaluated on a continuous 120×80 grid: pitch control, expected threat, pass completion probability, receiver sprint feasibility, and a post-receipt survival penalty (the "hospital pass" discount). Alpha near zero means the player found the best option; strongly negative alpha flags a missed opportunity. An interactive Streamlit dashboard replays any pass with the full surface, the optimum, and the actual choice.
 
-![Cognitive alpha example](figures/cognitive_alpha_plot.png)
+![Demo — Messi to Mac Allister, 2022 final](figures/demo.gif)
+
+*Above: rendered by the dashboard's animation engine — Messi to Mac Allister in extra time of the final. The full star is the model's optimal target, the hollow one the actual choice.*
 
 ## Components
 
