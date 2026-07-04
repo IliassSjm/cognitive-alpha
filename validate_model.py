@@ -33,8 +33,18 @@ from pff_loader import (
 )
 
 OUTPUT_DIR = Path(__file__).parent
-COMPETITION_ID = 43
+COMPETITION_ID = 43   # default: FIFA World Cup 2022
 SEASON_ID = 106
+
+
+def int_flag(argv: list[str], flag: str, default: int) -> int:
+    """Parse `--flag N` from argv; fall back to default on absence/garbage."""
+    if flag in argv:
+        try:
+            return int(argv[argv.index(flag) + 1])
+        except (IndexError, ValueError):
+            print(f"  Invalid value for {flag}, using {default}")
+    return default
 
 
 # ---- 0. Methodology helpers (unit-tested in tests/test_model.py) ----
@@ -422,21 +432,28 @@ def compute_pff_match_alphas(game_id: int) -> pd.DataFrame:
 def compute_validation_data(
     n_matches: int = 10,
     data_source: str = "statsbomb",
+    competition_id: int = COMPETITION_ID,
+    season_id: int = SEASON_ID,
 ) -> pd.DataFrame:
     """
     Compute α across multiple matches.
 
     data_source: "statsbomb" (freeze frames, no speeds)
                  "pff" (30fps tracking, speeds + velocity vectors)
+    competition_id / season_id: any StatsBomb open competition with 360
+        data (statsbomb source only; PFF tracking exists only for WC 2022).
     """
     # every match with a tracking file on disk, knockouts first
     pff_ids = pff_matches_with_tracking()[:n_matches] if data_source == "pff" else []
 
-    suffix = "_pff" if data_source == "pff" else ""
-    # the actual match count is part of the cache key -- a cache built
-    # for 3 matches must not silently satisfy a larger run
-    n_key = len(pff_ids) if data_source == "pff" else n_matches
-    cache_path = OUTPUT_DIR / f"validation_data{suffix}_{n_key}m.parquet"
+    # cache key: source, competition (statsbomb only) and match count --
+    # a cache built for 3 matches must not silently satisfy a larger run
+    if data_source == "pff":
+        cache_path = OUTPUT_DIR / f"validation_data_pff_{len(pff_ids)}m.parquet"
+    else:
+        cache_path = OUTPUT_DIR / (
+            f"validation_data_c{competition_id}s{season_id}_{n_matches}m.parquet"
+        )
     if cache_path.exists():
         print(f"  Loading cached {data_source.upper()} validation data")
         return pd.read_parquet(cache_path)
@@ -447,7 +464,7 @@ def compute_validation_data(
             delayed(compute_pff_match_alphas)(gid) for gid in pff_ids
         )
     else:
-        matches = sb.matches(competition_id=COMPETITION_ID, season_id=SEASON_ID)
+        matches = sb.matches(competition_id=competition_id, season_id=season_id)
         match_ids = matches["match_id"].head(n_matches).tolist()
         print(f"  Computing α for {n_matches} StatsBomb matches in parallel...")
         results = Parallel(n_jobs=-1, verbose=10)(
@@ -670,10 +687,15 @@ def plot_validation(df: pd.DataFrame, save_path: str | None = None):
 def main():
     import sys
     data_source = "pff" if "--pff" in sys.argv else "statsbomb"
+    competition_id = int_flag(sys.argv, "--competition-id", COMPETITION_ID)
+    season_id = int_flag(sys.argv, "--season-id", SEASON_ID)
     # PFF: every match with tracking on disk (full tournament = 64)
-    n_matches = len(pff_matches_with_tracking()) if data_source == "pff" else 10
+    default_n = len(pff_matches_with_tracking()) if data_source == "pff" else 10
+    n_matches = int_flag(sys.argv, "--n-matches", default_n)
     print("  Cognitive Alpha — Model Validation")
     print(f"  Data Source: {data_source.upper()}")
+    if data_source == "statsbomb":
+        print(f"  Competition: {competition_id} / season {season_id}")
     print(f"  Matches: {n_matches}")
     if data_source == "pff":
         print("  Features: PFF Tracking | Real-Time Speeds | Body Orientation Vectors")
@@ -681,11 +703,20 @@ def main():
         print("  Features: Possession-ID | Distance-control | Baseline | Parallel")
 
     print("\n1. Computing α for all passes (parallel)...")
-    df = compute_validation_data(n_matches=n_matches, data_source=data_source)
+    df = compute_validation_data(
+        n_matches=n_matches, data_source=data_source,
+        competition_id=competition_id, season_id=season_id,
+    )
     print(f"  → {len(df)} passes across {df['match_id'].nunique()} matches")
 
     print("\n2. Generating validation dashboard...")
-    suffix = f"_{data_source}" if data_source == "pff" else ""
+    if data_source == "pff":
+        suffix = "_pff"
+    elif (competition_id, season_id) != (COMPETITION_ID, SEASON_ID):
+        # non-default competition gets its own figure, never clobbers WC
+        suffix = f"_c{competition_id}s{season_id}"
+    else:
+        suffix = ""
     plot_validation(df, save_path=str(OUTPUT_DIR / f"model_validation{suffix}.png"))
 
     # Key findings

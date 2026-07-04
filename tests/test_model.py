@@ -197,3 +197,14 @@ def test_extra_time_attack_direction_uses_metadata_field():
     assert pff_pass_to_spatial(make_row(4, False))["attack_right"] is True
     # ...and parity is only the fallback when the field is absent
     assert pff_pass_to_spatial(make_row(3, None))["attack_right"] is True
+
+
+def test_int_flag_parsing():
+    from validate_model import int_flag
+
+    argv = ["prog", "--pff", "--competition-id", "53", "--season-id", "315"]
+    assert int_flag(argv, "--competition-id", 43) == 53
+    assert int_flag(argv, "--season-id", 106) == 315
+    assert int_flag(argv, "--n-matches", 10) == 10             # absent
+    assert int_flag(["p", "--n-matches"], "--n-matches", 7) == 7      # dangling
+    assert int_flag(["p", "--n-matches", "x"], "--n-matches", 7) == 7  # garbage

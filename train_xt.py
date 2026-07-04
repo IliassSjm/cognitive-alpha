@@ -37,8 +37,18 @@ from xt_model import XT_GRID_KARUN
 warnings.filterwarnings("ignore")
 
 # ---- Configuration ----
-COMPETITION_ID = 43
+COMPETITION_ID = 43   # default: FIFA World Cup 2022
 SEASON_ID      = 106
+
+
+def int_flag(argv: list[str], flag: str, default: int) -> int:
+    """Parse `--flag N` from argv; fall back to default on absence/garbage."""
+    if flag in argv:
+        try:
+            return int(argv[argv.index(flag) + 1])
+        except (IndexError, ValueError):
+            print(f"  Invalid value for {flag}, using {default}")
+    return default
 PITCH_LENGTH   = 120.0
 PITCH_WIDTH    = 80.0
 
@@ -53,14 +63,20 @@ OUTPUT_DIR = Path(__file__).parent
 
 
 # ---- 1. Data collection (with Parquet cache) ----
-def fetch_all_events() -> pd.DataFrame:
-    """Fetch events from all 64 matches, cache to Parquet."""
-    cache_path = OUTPUT_DIR / "xT_training_events.parquet"
+def fetch_all_events(
+    competition_id: int = COMPETITION_ID,
+    season_id: int = SEASON_ID,
+) -> pd.DataFrame:
+    """Fetch events from every match of a competition, cache to Parquet."""
+    if (competition_id, season_id) == (COMPETITION_ID, SEASON_ID):
+        cache_path = OUTPUT_DIR / "xT_training_events.parquet"  # legacy name
+    else:
+        cache_path = OUTPUT_DIR / f"xT_training_events_c{competition_id}s{season_id}.parquet"
     if cache_path.exists():
         print(f"  Loading cached events from {cache_path.name}")
         return pd.read_parquet(cache_path)
 
-    matches = sb.matches(competition_id=COMPETITION_ID, season_id=SEASON_ID)
+    matches = sb.matches(competition_id=competition_id, season_id=season_id)
     match_ids = matches["match_id"].tolist()
     print(f"  Fetching events from {len(match_ids)} matches...")
 
@@ -384,14 +400,25 @@ def plot_xt_comparison(
 
 # ---- 7. Main pipeline ----
 def main():
+    import sys
+    competition_id = int_flag(sys.argv, "--competition-id", COMPETITION_ID)
+    season_id = int_flag(sys.argv, "--season-id", SEASON_ID)
+    is_default = (competition_id, season_id) == (COMPETITION_ID, SEASON_ID)
+    # non-default competitions write suffixed artifacts so the engine's
+    # WC-trained surface (xt_model.py) is never clobbered by accident
+    out_suffix = "" if is_default else f"_c{competition_id}s{season_id}"
+
     print("  Expected Threat (xT) — Markov Chain Training")
-    print("  Dataset: FIFA World Cup 2022 (64 matches)")
+    if is_default:
+        print("  Dataset: FIFA World Cup 2022 (64 matches)")
+    else:
+        print(f"  Dataset: StatsBomb competition {competition_id} / season {season_id}")
     print(f"  Grid: {N_COLS}×{N_ROWS} = {N_COLS * N_ROWS} zones")
     print("  Features: Y-mirror | Turnover-aware | Gaussian smooth | Bilinear interp")
 
     # 1. Fetch data
     print("\n1. Fetching events...")
-    events = fetch_all_events()
+    events = fetch_all_events(competition_id, season_id)
     print(f"  → {len(events):,} raw events")
 
     # 2. Build transition matrices (with Y-mirroring)
@@ -424,10 +451,10 @@ def main():
     print(f"  → MAE: {np.abs(smoothed - karun_grid).mean():.6f}")
 
     # 6. Save
-    np.save(OUTPUT_DIR / "xt_trained.npy", xT_grid)
-    np.save(OUTPUT_DIR / "xt_trained_smooth.npy", smoothed)
-    np.save(OUTPUT_DIR / "xt_upscaled_120x80.npy", upscaled)
-    with open(OUTPUT_DIR / "xt_trained.json", "w") as f:
+    np.save(OUTPUT_DIR / f"xt_trained{out_suffix}.npy", xT_grid)
+    np.save(OUTPUT_DIR / f"xt_trained_smooth{out_suffix}.npy", smoothed)
+    np.save(OUTPUT_DIR / f"xt_upscaled_120x80{out_suffix}.npy", upscaled)
+    with open(OUTPUT_DIR / f"xt_trained{out_suffix}.json", "w") as f:
         json.dump({
             "grid_raw": xT_grid.tolist(),
             "grid_smoothed": smoothed.tolist(),
@@ -443,7 +470,12 @@ def main():
     # 7. Visualization
     print("\n7. Generating comparison plot...")
     plot_xt_comparison(xT_grid, smoothed, upscaled, karun_grid, convergence, stats,
-                      save_path=str(OUTPUT_DIR / "xt_trained_comparison.png"))
+                      save_path=str(OUTPUT_DIR / f"xt_trained_comparison{out_suffix}.png"))
+    if not is_default:
+        print("\n  NOTE: the engine (xt_model.py) still uses the WC-trained grid.")
+        print("  For cross-competition comparisons of alpha, keep ONE fixed xT")
+        print("  surface; only paste this grid into xt_model.py if you want the")
+        print("  whole engine revalued on this competition.")
 
     # 8. Print trained grid
     print("\n8. Smoothed xT Grid (for xt_model.py):")

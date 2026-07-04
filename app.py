@@ -93,6 +93,27 @@ for _sb_id, _pff_id in SB_TO_PFF.items():
 # (single source of truth, verified against PFF metadata team names)
 
 # ---- 2. CACHED DATA LOADING ----
+@st.cache_data(show_spinner="Loading competition list …")
+def load_open_competitions() -> pd.DataFrame:
+    """StatsBomb open-data competitions that ship 360 freeze frames."""
+    comps = sb.competitions()
+    comps = comps.loc[comps["match_available_360"].notna()]
+    return comps[
+        ["competition_id", "season_id", "competition_name", "season_name"]
+    ].drop_duplicates().reset_index(drop=True)
+
+
+@st.cache_data(show_spinner="Loading match list …")
+def load_match_list(competition_id: int, season_id: int) -> dict:
+    """match_id → label for any StatsBomb open competition."""
+    m = sb.matches(competition_id=competition_id, season_id=season_id)
+    m = m.sort_values("match_date")
+    return {
+        int(r.match_id): f"{r.match_date} — {r.home_team} vs {r.away_team}"
+        for r in m.itertuples()
+    }
+
+
 @st.cache_data(show_spinner="Loading StatsBomb 360 data …")
 def load_match_data(match_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     import warnings
@@ -1004,7 +1025,44 @@ def main():
     # ── Sidebar ────────────────────────────────────────────────────
     with st.sidebar:
         st.header("🏟️ Match")
-        match_options = list(MATCH_OPTIONS.items())
+        competition_mode = st.radio(
+            "Competition",
+            ["World Cup 2022", "Other StatsBomb 360"],
+            index=0,
+            horizontal=True,
+            help="World Cup 2022 has PFF tracking. Other open-data "
+                 "competitions (Euro 2024, Women's Euro 2025, AFCON 2023, ...) "
+                 "use StatsBomb 360 freeze frames only.",
+        )
+        is_wc = competition_mode == "World Cup 2022"
+
+        if is_wc:
+            match_dict = MATCH_OPTIONS
+        else:
+            try:
+                comps = load_open_competitions()
+            except Exception as e:
+                st.error(f"Could not fetch the competition list: {e}")
+                return
+            comp_labels = [
+                f"{r.competition_name} — {r.season_name}"
+                for r in comps.itertuples()
+            ]
+            comp_idx = st.selectbox(
+                "StatsBomb 360 competition",
+                range(len(comp_labels)),
+                format_func=lambda i: comp_labels[i],
+            )
+            comp_row = comps.iloc[comp_idx]
+            try:
+                match_dict = load_match_list(
+                    int(comp_row.competition_id), int(comp_row.season_id)
+                )
+            except Exception as e:
+                st.error(f"Could not fetch the match list: {e}")
+                return
+
+        match_options = list(match_dict.items())
         match_labels = [label for _, label in match_options]
         match_ids_list = [mid for mid, _ in match_options]
 
@@ -1022,7 +1080,7 @@ def main():
             multi_options = st.multiselect(
                 "Matches for aggregation",
                 options=match_ids_list,
-                format_func=lambda mid: MATCH_OPTIONS[mid],
+                format_func=lambda mid: match_dict[mid],
                 default=[3869685, 3869519, 3869552],
             )
         else:
@@ -1030,14 +1088,21 @@ def main():
 
         st.markdown("---")
         st.header("📡 Data Source")
-        data_source = st.radio(
-            "Choose data source",
-            ["StatsBomb 360", "PFF Tracking"],
-            index=0,
-            horizontal=True,
-            help="PFF: real-time speeds from 30fps broadcast tracking.",
-        )
-        use_pff = data_source == "PFF Tracking"
+        if is_wc:
+            data_source = st.radio(
+                "Choose data source",
+                ["StatsBomb 360", "PFF Tracking"],
+                index=0,
+                horizontal=True,
+                help="PFF: real-time speeds from 30fps broadcast tracking.",
+            )
+            use_pff = data_source == "PFF Tracking"
+        else:
+            st.caption(
+                "StatsBomb 360 freeze frames "
+                "(PFF tracking exists only for World Cup 2022)"
+            )
+            use_pff = False
 
         st.markdown("---")
         st.header("🏃 Pass Trajectory")
@@ -1269,7 +1334,7 @@ def main():
     with tab2:
         match_desc = (
             "multiple matches" if (multi_match and len(multi_options) > 1)
-            else MATCH_OPTIONS.get(selected_match_id, "selected match")
+            else match_dict.get(selected_match_id, "selected match")
         )
         st.subheader(f"Per-Player Spatial α — {match_desc}")
         st.caption(
@@ -1635,7 +1700,7 @@ def main():
         elif passes.empty:
             st.warning("No pass data available.")
         else:
-            match_label = MATCH_OPTIONS.get(selected_match_id, "Selected Match")
+            match_label = match_dict.get(selected_match_id, "Selected Match")
             st.caption(f"**{match_label}** — Automated spatial analysis of all open-play passes")
 
             # Compute α for all passes

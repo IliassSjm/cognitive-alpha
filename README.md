@@ -37,7 +37,21 @@ where the expected value of a target location combines five surfaces evaluated o
 
 Headline numbers on the full tournament (all 64 matches, 66,348 passes with 30 fps tracking context): the top-alpha tercile posts the highest completion rate in three of four distance bins (91.1% vs 84.6% on 10–20 yd passes; the 35+ yd bin inverts — a stated limitation). On disagreement passes (n = 25,104), players who chose the model's target generated more shots within the possession (6.1% vs 4.8%, z = 4.4, p < 0.001) and broke 2.4x as many defensive lines (0.19 vs 0.08 per pass) at a lower completion rate (81.0% vs 89.5%) — the model prices risk/reward, not safety. Its optimum lands within 12 yards of the PFF scout's tagged "better option" on 33.9% of the 224 annotated passes.
 
-One limitation to state plainly: even with intended-target evaluation, alpha embeds the completion probability of the chosen target, so the raw alpha–success correlation (r ≈ 0.03 on de-leaked data) is uninformative by itself. The distance-controlled and downstream-outcome checks carry the weight, and the scout-agreement axis is the most independent of the four.
+One limitation to state plainly: even with intended-target evaluation, alpha embeds the completion probability of the chosen target, so the raw alpha–success correlation (r ≈ 0.02 on de-leaked data) is uninformative by itself. The distance-controlled and downstream-outcome checks carry the weight, and the scout-agreement axis is the most independent of the four.
+
+## Other competitions
+
+The engine is competition-agnostic in StatsBomb 360 mode. The dashboard's "Other StatsBomb 360" picker lists every open-data competition with freeze frames at runtime (Euro 2024, Women's Euro 2025, AFCON 2023, ...) — nothing to hardcode. The CLI tools take explicit IDs (discover them via `sb.competitions()`):
+
+```bash
+# validate on another tournament (StatsBomb source; 53/315 = Women's Euro 2025)
+python3 validate_model.py --competition-id 53 --season-id 315 --n-matches 31
+
+# retrain xT on that tournament (writes suffixed artifacts, never clobbers WC)
+python3 train_xt.py --competition-id 53 --season-id 315
+```
+
+Two caveats. PFF tracking exists only for World Cup 2022, so other competitions run on freeze frames without real player velocities. And cross-competition alpha comparisons should keep the single WC-trained xT surface — retrained grids land in suffixed files and are opt-in by design.
 
 ## Layout
 
