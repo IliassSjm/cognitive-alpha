@@ -127,3 +127,43 @@ def test_sb_to_pff_mapping_matches_fixtures():
                 meta = meta[0]
             assert meta["homeTeam"]["name"] in label, (pff_id, label)
             assert meta["awayTeam"]["name"] in label, (pff_id, label)
+
+
+# ---- validation methodology helpers ------------------------------------
+
+def test_infer_intended_target_picks_closest_teammate():
+    from validate_model import infer_intended_target
+
+    end = np.array([20.0, 20.0])
+    tms = np.array([[50.0, 50.0], [22.0, 19.0]])
+    target, is_proxy = infer_intended_target(end, tms)
+    assert is_proxy
+    assert np.allclose(target, [22.0, 19.0])
+    # no teammates: keep the recorded end location, unproxied
+    target, is_proxy = infer_intended_target(end, np.zeros((0, 2)))
+    assert not is_proxy
+    assert np.allclose(target, end)
+
+
+def test_disagreement_cohorts_are_symmetric_and_exclusive():
+    import pandas as pd
+    from validate_model import disagreement_cohorts
+
+    rows = [
+        # targets agree (sep 2 yd) -> excluded even though actual hits both
+        dict(opt_x=50, opt_y=40, nearest_x=52, nearest_y=40,
+             actual_end_x=51, actual_end_y=40, tag="agree"),
+        # disagree, actual at the model target -> went_model
+        dict(opt_x=100, opt_y=40, nearest_x=60, nearest_y=40,
+             actual_end_x=99, actual_end_y=41, tag="model"),
+        # disagree, actual at the nearest teammate -> went_baseline
+        dict(opt_x=100, opt_y=40, nearest_x=60, nearest_y=40,
+             actual_end_x=61, actual_end_y=39, tag="baseline"),
+        # disagree, actual near neither -> excluded
+        dict(opt_x=100, opt_y=40, nearest_x=60, nearest_y=40,
+             actual_end_x=80, actual_end_y=10, tag="neither"),
+    ]
+    df = pd.DataFrame(rows)
+    went_model, went_baseline = disagreement_cohorts(df)
+    assert went_model["tag"].tolist() == ["model"]
+    assert went_baseline["tag"].tolist() == ["baseline"]

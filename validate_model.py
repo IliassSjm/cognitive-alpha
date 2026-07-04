@@ -33,6 +33,65 @@ COMPETITION_ID = 43
 SEASON_ID = 106
 
 
+# ---- 0. Methodology helpers (unit-tested in tests/test_model.py) ----
+def infer_intended_target(
+    end_loc: np.ndarray, tm_pos: np.ndarray,
+) -> tuple[np.ndarray, bool]:
+    """
+    Proxy the INTENDED target of a failed pass.
+
+    StatsBomb's pass_end_location for a failed pass is where the ball was
+    intercepted or ran out -- mechanically a low-xEV spot. Evaluating the
+    decision there leaks the outcome into alpha ("failed passes look like
+    bad decisions" partly by construction). The standard proxy is the
+    teammate closest to the recorded end location.
+
+    Returns (target_pos, is_proxy).
+    """
+    if len(tm_pos) == 0:
+        return end_loc, False
+    dists = np.linalg.norm(tm_pos - end_loc, axis=1)
+    return tm_pos[int(np.argmin(dists))].astype(float), True
+
+
+def disagreement_cohorts(
+    df: pd.DataFrame,
+    radius: float = 8.0,
+    min_separation: float = 8.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Outcome-based model-vs-baseline comparison, restricted to passes where
+    the model target and the nearest-teammate target actually DISAGREE
+    (further than min_separation apart).
+
+    Rationale: the old comparison split on opt_xev > nearest_teammate_xev,
+    but opt_xev is the argmax of the same surface nearest_teammate_xev is
+    read from, so opt_xev >= nearest_teammate_xev holds by construction and
+    the "baseline" cohort contained only exact ties.
+
+    Returns (went_model, went_baseline): passes whose actual end point lies
+    within `radius` yards of exactly one of the two targets. Downstream
+    outcome rates (shots, turnovers) of the two cohorts give a fair,
+    non-circular baseline comparison.
+    """
+    d_targets = np.sqrt(
+        (df["opt_x"] - df["nearest_x"]) ** 2
+        + (df["opt_y"] - df["nearest_y"]) ** 2
+    )
+    d_opt = np.sqrt(
+        (df["actual_end_x"] - df["opt_x"]) ** 2
+        + (df["actual_end_y"] - df["opt_y"]) ** 2
+    )
+    d_near = np.sqrt(
+        (df["actual_end_x"] - df["nearest_x"]) ** 2
+        + (df["actual_end_y"] - df["nearest_y"]) ** 2
+    )
+    disagree = d_targets > min_separation
+    went_model = disagree & (d_opt <= radius) & (d_near > radius)
+    went_baseline = disagree & (d_near <= radius) & (d_opt > radius)
+    return df[went_model], df[went_baseline]
+
+
 # ---- 1. Compute α for all passes in one match ----
 def compute_match_alphas(match_id: int) -> pd.DataFrame:
     """Compute α for all open-play passes in a match (with possession-aware look-ahead)."""
@@ -90,6 +149,16 @@ def compute_match_alphas(match_id: int) -> pd.DataFrame:
                 continue
             actual_end = np.array(end_loc, dtype=float)
 
+            # Outcome (needed now: failed passes get a proxied target)
+            pass_outcome = pass_row.get("pass_outcome")
+            is_successful = pd.isna(pass_outcome)
+
+            # De-leak: evaluate failed passes at the intended target, not
+            # at the interception point (see infer_intended_target).
+            end_is_proxy = False
+            if not is_successful:
+                actual_end, end_is_proxy = infer_intended_target(actual_end, tm_pos)
+
             # Compute α
             result = compute_continuous_alpha(
                 bc_pos, tm_pos, def_pos, actual_end, pass_type="Ground Pass",
@@ -110,21 +179,26 @@ def compute_match_alphas(match_id: int) -> pd.DataFrame:
                 nearest_x, nearest_y = 0.0, 0.0
 
             # === Possession-ID look-ahead ===
-            pass_outcome = pass_row.get("pass_outcome")
-            is_successful = pd.isna(pass_outcome)
             passer_team = pass_row.get("team")
             possession_id = pass_row.get("possession")
 
-            # Look ahead within SAME possession chain only
+            # Look ahead within SAME possession chain only.
+            # Sort chronologically -- DataFrame row order is not a contract.
             if possession_id is not None:
                 same_poss = events[
                     (events["possession"] == possession_id)
                     & (events["team"] == passer_team)
                 ]
-                pass_idx_in_poss = same_poss.index[same_poss["id"] == pass_id]
-                if len(pass_idx_in_poss) > 0:
-                    idx = pass_idx_in_poss[0]
-                    future_in_poss = same_poss.loc[same_poss.index > idx]
+                if "index" in same_poss.columns:
+                    same_poss = same_poss.sort_values("index", kind="stable")
+                else:
+                    same_poss = same_poss.sort_values(
+                        ["period", "minute", "second"], kind="stable"
+                    )
+                poss_ids = same_poss["id"].tolist()
+                if pass_id in poss_ids:
+                    pos = poss_ids.index(pass_id)
+                    future_in_poss = same_poss.iloc[pos + 1:]
                     shot_in_poss = any(future_in_poss["type"] == "Shot")
                 else:
                     shot_in_poss = False
@@ -162,6 +236,7 @@ def compute_match_alphas(match_id: int) -> pd.DataFrame:
                 "nearest_y": nearest_y,
                 "pass_distance": pass_distance,
                 "is_successful": is_successful,
+                "end_is_proxy": end_is_proxy,
                 "shot_in_possession": shot_in_poss,
                 "possession_lost": possession_lost,
                 "n_defenders": len(def_pos),
@@ -238,23 +313,29 @@ def compute_pff_match_alphas(game_id: int) -> pd.DataFrame:
             is_home = row.get("team", "") == raw_events[0].get("gameEvents", {}).get("teamName", "") if raw_events else True
 
             # === PFF Possession Chain Look-ahead ===
-            # Find this pass's index in the raw event list by gameClock proximity
+            # Find this pass's index in the raw event list by gameClock
+            # proximity AND passer name (gameClock alone is ambiguous when
+            # two passes share the same second), capped at 2s tolerance.
             shot_in_poss = False
             poss_lost = not is_successful  # default: failed pass = lost
             pass_clock = row.get("minute", 0) * 60 + row.get("second", 0)
+            target_passer = str(row.get("passer_name") or "")
 
-            # Find the closest raw event by gameClock
             best_raw_idx = None
             best_diff = float("inf")
             for ri, re in enumerate(raw_events):
                 pe = re.get("possessionEvents", {})
                 if pe and pe.get("possessionEventType") == "PA":
+                    if target_passer and (pe.get("passerPlayerName") or "") != target_passer:
+                        continue
                     gc = pe.get("gameClock", -1)
                     if gc >= 0:
                         diff = abs(gc - pass_clock)
                         if diff < best_diff:
                             best_diff = diff
                             best_raw_idx = ri
+            if best_diff > 2:
+                best_raw_idx = None
 
             if best_raw_idx is not None and is_successful:
                 # Scan the next 10 events after this pass
@@ -310,6 +391,11 @@ def compute_pff_match_alphas(game_id: int) -> pd.DataFrame:
                     spatial["actual_end"] - spatial["bc_pos"]
                 )),
                 "is_successful": is_successful,
+                # failed PFF passes are already evaluated at the annotated
+                # intended target (extract_pff_passes falls back to
+                # targetPlayerName when there is no receiver), not at the
+                # interception point
+                "end_is_proxy": not is_successful,
                 "shot_in_possession": shot_in_poss,
                 "possession_lost": poss_lost,
                 "n_defenders": len(spatial["def_pos"]),
@@ -340,7 +426,9 @@ def compute_validation_data(
                  "pff" (30fps tracking, speeds + velocity vectors)
     """
     suffix = "_pff" if data_source == "pff" else ""
-    cache_path = OUTPUT_DIR / f"validation_data{suffix}.parquet"
+    # n_matches is part of the cache key -- a cache built for 3 matches
+    # must not silently satisfy a 10-match run
+    cache_path = OUTPUT_DIR / f"validation_data{suffix}_{n_matches}m.parquet"
     if cache_path.exists():
         print(f"  Loading cached {data_source.upper()} validation data")
         return pd.read_parquet(cache_path)
@@ -449,51 +537,51 @@ def plot_validation(df: pd.DataFrame, save_path: str | None = None):
     ax3.set_ylabel("Pass Success Rate", color="white")
     ax3.tick_params(colors="white"); ax3.legend(fontsize=8)
 
-    # === Panel 4: Ground-Truth Concordance Validation ===
+    # === Panel 4: Model vs Nearest-TM baseline (disagreements only) ===
+    # Fair comparison: only passes where the two targets are >8 yd apart
+    # and the player's actual choice matches exactly one of them.
+    # (The old version assigned overlapping passes to the model first,
+    # which inflated the model cohort whenever the targets coincided.)
     ax4 = axes[1, 0]
-    CONCORDANCE_R = 8.0  # yards — radius for "human passed to AI target"
+    CONCORDANCE_R = 8.0  # yards — radius for "human passed to this target"
     EXPERT_R = 12.0      # yards — radius for AI-vs-expert agreement
 
-    # Compute concordance distances
     has_coords = all(c in df.columns for c in ["actual_end_x", "actual_end_y", "nearest_x", "nearest_y"])
     if has_coords:
-        df["dist_to_opt"] = np.sqrt(
-            (df["actual_end_x"] - df["opt_x"]) ** 2
-            + (df["actual_end_y"] - df["opt_y"]) ** 2
+        conc_model, conc_baseline = disagreement_cohorts(
+            df, radius=CONCORDANCE_R, min_separation=CONCORDANCE_R,
         )
-        df["dist_to_nearest"] = np.sqrt(
-            (df["actual_end_x"] - df["nearest_x"]) ** 2
-            + (df["actual_end_y"] - df["nearest_y"]) ** 2
-        )
-        model_concordant = df["dist_to_opt"] <= CONCORDANCE_R
-        baseline_concordant = (~model_concordant) & (df["dist_to_nearest"] <= CONCORDANCE_R)
-        conc_model = df[model_concordant]
-        conc_baseline = df[baseline_concordant]
     else:
         conc_model = pd.DataFrame()
         conc_baseline = pd.DataFrame()
 
-    # --- Lines Broken Validation ---
+    # --- Outcomes when the player followed the model vs the naive heuristic ---
     has_lines = "lines_broken" in df.columns
     lines_model = conc_model["lines_broken"].mean() if has_lines and len(conc_model) > 0 else 0
     lines_baseline = conc_baseline["lines_broken"].mean() if has_lines and len(conc_baseline) > 0 else 0
     succ_model = conc_model["is_successful"].mean() if len(conc_model) > 0 else 0
     succ_baseline = conc_baseline["is_successful"].mean() if len(conc_baseline) > 0 else 0
+    shot_model = conc_model["shot_in_possession"].mean() if len(conc_model) > 0 else 0
+    shot_baseline = conc_baseline["shot_in_possession"].mean() if len(conc_baseline) > 0 else 0
 
     x_b = [0, 1]
     labels_conc = [
-        f"Model\nConcordant\n(n={len(conc_model)})",
-        f"Baseline\nConcordant\n(n={len(conc_baseline)})",
+        f"Chose model\ntarget\n(n={len(conc_model)})",
+        f"Chose nearest\nteammate\n(n={len(conc_baseline)})",
     ]
-    w = 0.25
-    ax4.bar([x - w/2 for x in x_b], [lines_model, lines_baseline], w,
-            color="#ffd700", label="Avg Lines Broken", alpha=0.9)
-    ax4.bar([x + w/2 for x in x_b], [succ_model, succ_baseline], w,
+    w = 0.22
+    ax4.bar([x - w for x in x_b], [succ_model, succ_baseline], w,
             color="#00e5ff", label="Pass Success Rate", alpha=0.8)
+    ax4.bar(x_b, [shot_model, shot_baseline], w,
+            color="#ff8c00", label="Shot in Possession", alpha=0.9)
+    ax4.bar([x + w for x in x_b], [lines_model, lines_baseline], w,
+            color="#ffd700", label="Avg Lines Broken", alpha=0.9)
     ax4.set_xticks(x_b)
     ax4.set_xticklabels(labels_conc, color="white", fontsize=9)
-    ax4.set_title(f"Ground-Truth Concordance (r ≤ {CONCORDANCE_R:.0f} yd)", color="white",
-                  fontsize=11, fontweight="bold")
+    ax4.set_title(
+        f"Model vs Nearest-TM — disagreements only (sep > {CONCORDANCE_R:.0f} yd)",
+        color="white", fontsize=11, fontweight="bold",
+    )
     ax4.set_ylabel("Value", color="white")
     ax4.tick_params(colors="white")
     ax4.legend(fontsize=8)
@@ -549,9 +637,11 @@ def plot_validation(df: pd.DataFrame, save_path: str | None = None):
         f"  Pass success: {q5['success']:.1%}\n"
         f"  Shot rate:    {q5['shot']:.1%}\n"
         f"  Turnover:     {q5['turnover']:.1%}\n\n"
-        f"Lines Broken (concordance):\n"
-        f"  Model:    {lines_model:.2f} avg\n"
-        f"  Baseline: {lines_baseline:.2f} avg\n\n"
+        f"Disagreement cohorts (sep > 8 yd):\n"
+        f"  Chose model target (n={len(conc_model)}):\n"
+        f"    success {succ_model:.1%} | shot {shot_model:.1%}\n"
+        f"  Chose nearest TM (n={len(conc_baseline)}):\n"
+        f"    success {succ_baseline:.1%} | shot {shot_baseline:.1%}\n\n"
         f"Expert Scout Agreement:\n"
         f"  {expert_agreement_pct:.1f}% ({n_expert_passes} tagged)\n"
     )
@@ -574,7 +664,7 @@ def plot_validation(df: pd.DataFrame, save_path: str | None = None):
 def main():
     import sys
     data_source = "pff" if "--pff" in sys.argv else "statsbomb"
-    n_matches = 3 if data_source == "pff" else 10
+    n_matches = 8 if data_source == "pff" else 10
     print("  Cognitive Alpha — Model Validation")
     print(f"  Data Source: {data_source.upper()}")
     print(f"  Matches: {n_matches}")
@@ -599,11 +689,19 @@ def main():
     print(f"  Mean α (failed):     {failed['alpha'].mean():+.6f}")
     print(f"  Correlation (α↔suc): r = {df['alpha'].corr(df['is_successful'].astype(float)):.4f}")
 
-    # Baseline
-    model_shot = df[df["opt_xev"] > df["nearest_teammate_xev"]]["shot_in_possession"].mean()
-    naive_shot = df[df["opt_xev"] <= df["nearest_teammate_xev"]]["shot_in_possession"].mean()
-    print(f"  Model optimal → shot rate:  {model_shot:.1%}")
-    print(f"  Nearest TM → shot rate:     {naive_shot:.1%}")
+    # Baseline: outcome comparison on disagreement cohorts only.
+    # (Splitting on opt_xev > nearest_teammate_xev is degenerate: opt_xev
+    # is the argmax of the surface nearest_teammate_xev is read from.)
+    went_model, went_baseline = disagreement_cohorts(df)
+    if len(went_model) > 0 and len(went_baseline) > 0:
+        print(f"  Disagreements — chose model target (n={len(went_model)}): "
+              f"shot rate {went_model['shot_in_possession'].mean():.1%}, "
+              f"turnover {went_model['possession_lost'].mean():.1%}")
+        print(f"  Disagreements — chose nearest TM  (n={len(went_baseline)}): "
+              f"shot rate {went_baseline['shot_in_possession'].mean():.1%}, "
+              f"turnover {went_baseline['possession_lost'].mean():.1%}")
+    else:
+        print("  Not enough disagreement passes for a baseline comparison.")
 
     if data_source == "pff":
         print("\n  Body orientation turn penalty ACTIVE")

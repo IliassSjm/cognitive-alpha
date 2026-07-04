@@ -28,14 +28,16 @@ where the expected value of a target location combines five surfaces evaluated o
 
 `validate_model.py` runs four checks (`--pff` for the tracking-enhanced version):
 
-- Alpha quintiles vs outcomes: pass completion, shot within the same possession chain, and possession loss, with look-ahead strictly bounded to the same possession.
+- Alpha quintiles vs outcomes: pass completion, shot within the same possession chain, and possession loss, with look-ahead strictly bounded to the same possession. Failed passes are evaluated at their *intended* target (nearest teammate to the recorded end point; PFF's annotated target), never at the interception point — otherwise the outcome leaks into alpha.
 - The same analysis controlled for pass distance (terciles within distance bins), since long passes have both lower alpha and lower completion.
-- A nearest-teammate baseline and a concordance analysis (was the actual pass within 8 yards of the model's optimum?).
+- A nearest-teammate baseline restricted to true disagreements: passes where the model target and the nearest teammate are more than 8 yards apart and the player's actual choice matches exactly one of them. Comparing downstream outcomes of these two cohorts avoids the circularity of scoring the baseline with the model's own surface.
 - Agreement with PFF's human scout annotations: where scouts tagged a "better option" on a pass, the model's optimum is compared to the scout's suggestion.
 
 ![Validation](figures/model_validation_pff.png)
 
-One limitation to state plainly: alpha embeds the completion probability of the actual target, so a raw correlation between alpha and pass success is partly mechanical. That is why the distance-controlled and downstream-outcome (shot/turnover) checks matter more than the raw correlation, and why the scout-agreement axis is the most independent of the four.
+Headline numbers on the 8-match PFF sample (8,843 passes): the top-alpha tercile posts the highest completion rate in three of four distance bins (92.3% vs 84.4% on 10–20 yd passes); on disagreement passes (n = 3,289), players who chose the model's target generated more shots (6.2% vs 5.0%) and broke twice as many defensive lines (0.18 vs 0.09 per pass) at a lower completion rate (83.1% vs 87.9%) — the model prices risk/reward, not safety. The shot-rate gap is directional (z ≈ 1.4), not statistically significant.
+
+One limitation to state plainly: even with intended-target evaluation, alpha embeds the completion probability of the chosen target, so the raw alpha–success correlation (r ≈ 0.03 on de-leaked data) is uninformative by itself. The distance-controlled and downstream-outcome checks carry the weight, and the scout-agreement axis is the most independent of the four.
 
 ## Layout
 
