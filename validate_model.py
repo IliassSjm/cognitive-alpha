@@ -26,7 +26,11 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 
 from pitch_control import compute_continuous_alpha
-from pff_loader import extract_pff_passes, pff_pass_to_spatial, PFF_KEY_MATCHES
+from pff_loader import (
+    extract_pff_passes,
+    pff_pass_to_spatial,
+    pff_matches_with_tracking,
+)
 
 OUTPUT_DIR = Path(__file__).parent
 COMPETITION_ID = 43
@@ -425,17 +429,19 @@ def compute_validation_data(
     data_source: "statsbomb" (freeze frames, no speeds)
                  "pff" (30fps tracking, speeds + velocity vectors)
     """
+    # every match with a tracking file on disk, knockouts first
+    pff_ids = pff_matches_with_tracking()[:n_matches] if data_source == "pff" else []
+
     suffix = "_pff" if data_source == "pff" else ""
-    # n_matches is part of the cache key -- a cache built for 3 matches
-    # must not silently satisfy a 10-match run
-    cache_path = OUTPUT_DIR / f"validation_data{suffix}_{n_matches}m.parquet"
+    # the actual match count is part of the cache key -- a cache built
+    # for 3 matches must not silently satisfy a larger run
+    n_key = len(pff_ids) if data_source == "pff" else n_matches
+    cache_path = OUTPUT_DIR / f"validation_data{suffix}_{n_key}m.parquet"
     if cache_path.exists():
         print(f"  Loading cached {data_source.upper()} validation data")
         return pd.read_parquet(cache_path)
 
     if data_source == "pff":
-        # Use PFF key matches (knockout rounds with tracking data)
-        pff_ids = list(PFF_KEY_MATCHES.keys())[:n_matches]
         print(f"  Computing α for {len(pff_ids)} PFF matches (with velocities)...")
         results = Parallel(n_jobs=-1, verbose=10)(
             delayed(compute_pff_match_alphas)(gid) for gid in pff_ids
@@ -664,7 +670,8 @@ def plot_validation(df: pd.DataFrame, save_path: str | None = None):
 def main():
     import sys
     data_source = "pff" if "--pff" in sys.argv else "statsbomb"
-    n_matches = 8 if data_source == "pff" else 10
+    # PFF: every match with tracking on disk (full tournament = 64)
+    n_matches = len(pff_matches_with_tracking()) if data_source == "pff" else 10
     print("  Cognitive Alpha — Model Validation")
     print(f"  Data Source: {data_source.upper()}")
     print(f"  Matches: {n_matches}")

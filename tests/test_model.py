@@ -96,11 +96,11 @@ def test_pff_to_statsbomb_transform():
 
 
 def test_sb_to_pff_mapping_matches_fixtures():
-    from pff_loader import SB_TO_PFF, PFF_KEY_MATCHES, DATA_DIR
+    from pff_loader import SB_TO_PFF, PFF_KEY_MATCHES, PFF_MATCH_LABELS, DATA_DIR
     import json
 
-    # ground truth derived from PFF Metadata/<id>.json home/away team names
-    # and StatsBomb event team names (do not edit without re-verifying both)
+    # hand-verified knockout anchors, derived from PFF Metadata/<id>.json
+    # home/away team names and StatsBomb event team names
     expected = {
         3869685: 10517,  # Argentina vs France
         3869684: 10516,  # Croatia vs Morocco
@@ -111,13 +111,19 @@ def test_sb_to_pff_mapping_matches_fixtures():
         3869321: 10511,  # Netherlands vs Argentina
         3869420: 10510,  # Croatia vs Brazil
     }
-    assert SB_TO_PFF == expected
-    assert set(SB_TO_PFF.values()) == set(PFF_KEY_MATCHES.keys())
+    for sb_id, pff_id in expected.items():
+        assert SB_TO_PFF[sb_id] == pff_id
 
-    # when the raw metadata is on disk, re-verify labels against it
+    # full-tournament invariants
+    assert len(SB_TO_PFF) == 64
+    assert len(set(SB_TO_PFF.values())) == 64
+    assert set(SB_TO_PFF.values()) == set(PFF_MATCH_LABELS.keys())
+    assert set(PFF_KEY_MATCHES.keys()) <= set(PFF_MATCH_LABELS.keys())
+
+    # when the raw metadata is on disk, re-verify every label against it
     meta_dir = DATA_DIR / "Metadata"
     if meta_dir.exists():
-        for pff_id, label in PFF_KEY_MATCHES.items():
+        for pff_id, label in PFF_MATCH_LABELS.items():
             meta_path = meta_dir / f"{pff_id}.json"
             if not meta_path.exists():
                 continue
@@ -167,3 +173,27 @@ def test_disagreement_cohorts_are_symmetric_and_exclusive():
     went_model, went_baseline = disagreement_cohorts(df)
     assert went_model["tag"].tolist() == ["model"]
     assert went_baseline["tag"].tolist() == ["baseline"]
+
+
+def test_extra_time_attack_direction_uses_metadata_field():
+    import pandas as pd
+    from pff_loader import pff_pass_to_spatial
+
+    def make_row(period, hsl_et):
+        return pd.Series(dict(
+            passer_x=60.0, passer_y=40.0, receiver_x=70.0, receiver_y=40.0,
+            all_teammates=[{"x": 70.0, "y": 40.0, "speed": 3.0, "name": "T"}],
+            all_defenders=[{"x": 80.0, "y": 40.0, "speed": 3.0, "name": "D"}],
+            ball_z=0.0, is_home=True, period=period,
+            home_starts_left=True, home_starts_left_et=hsl_et,
+            passer_vx=0.0, passer_vy=0.0,
+        ))
+
+    # regulation: parity from homeTeamStartLeft (True -> home right in P1)
+    assert pff_pass_to_spatial(make_row(1, None))["attack_right"] is True
+    assert pff_pass_to_spatial(make_row(2, None))["attack_right"] is False
+    # extra time: the explicit metadata field wins over parity...
+    assert pff_pass_to_spatial(make_row(3, False))["attack_right"] is False
+    assert pff_pass_to_spatial(make_row(4, False))["attack_right"] is True
+    # ...and parity is only the fallback when the field is absent
+    assert pff_pass_to_spatial(make_row(3, None))["attack_right"] is True

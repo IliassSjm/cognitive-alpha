@@ -46,6 +46,7 @@ from pff_loader import (
     load_tracking_window,
     extract_tracking_sequence,
     PFF_KEY_MATCHES,
+    PFF_MATCH_LABELS,
     SB_TO_PFF,
 )
 from tracking_analytics import analyse_match as analyse_tracking_match
@@ -80,6 +81,13 @@ KEY_MATCHES = {
     3869220: "⚔️ R16 — Morocco vs Spain",
     3869684: "3rd Place — Croatia vs Morocco",
 }
+
+# Full tournament selector: curated knockout labels first, then every
+# remaining match with PFF coverage (all 64 WC 2022 matches).
+MATCH_OPTIONS = dict(KEY_MATCHES)
+for _sb_id, _pff_id in SB_TO_PFF.items():
+    if _sb_id not in MATCH_OPTIONS:
+        MATCH_OPTIONS[_sb_id] = PFF_MATCH_LABELS[_pff_id]
 
 # StatsBomb match ID → PFF game ID mapping: imported from pff_loader.SB_TO_PFF
 # (single source of truth, verified against PFF metadata team names)
@@ -996,7 +1004,7 @@ def main():
     # ── Sidebar ────────────────────────────────────────────────────
     with st.sidebar:
         st.header("🏟️ Match")
-        match_options = list(KEY_MATCHES.items())
+        match_options = list(MATCH_OPTIONS.items())
         match_labels = [label for _, label in match_options]
         match_ids_list = [mid for mid, _ in match_options]
 
@@ -1014,7 +1022,7 @@ def main():
             multi_options = st.multiselect(
                 "Matches for aggregation",
                 options=match_ids_list,
-                format_func=lambda mid: KEY_MATCHES[mid],
+                format_func=lambda mid: MATCH_OPTIONS[mid],
                 default=[3869685, 3869519, 3869552],
             )
         else:
@@ -1261,7 +1269,7 @@ def main():
     with tab2:
         match_desc = (
             "multiple matches" if (multi_match and len(multi_options) > 1)
-            else KEY_MATCHES.get(selected_match_id, "selected match")
+            else MATCH_OPTIONS.get(selected_match_id, "selected match")
         )
         st.subheader(f"Per-Player Spatial α — {match_desc}")
         st.caption(
@@ -1627,7 +1635,7 @@ def main():
         elif passes.empty:
             st.warning("No pass data available.")
         else:
-            match_label = KEY_MATCHES.get(selected_match_id, "Selected Match")
+            match_label = MATCH_OPTIONS.get(selected_match_id, "Selected Match")
             st.caption(f"**{match_label}** — Automated spatial analysis of all open-play passes")
 
             # Compute α for all passes

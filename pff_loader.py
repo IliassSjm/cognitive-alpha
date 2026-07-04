@@ -12,9 +12,11 @@ Coordinate Transform:
   sb_y = 80 - (pff_y + 34.0) / 68 * 80    (PFF +y is opposite to StatsBomb +y)
 """
 
-import json
+import bisect
 import bz2
+import json
 import os
+import re
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -39,19 +41,161 @@ PFF_KEY_MATCHES = {
     10510: "QF — Croatia vs Brazil",
 }
 
-# StatsBomb match ID → PFF game ID
-# Single source of truth — verified against PFF Metadata/<id>.json team names
-# and StatsBomb event data team names for all 8 matches.
+# StatsBomb match ID → PFF game ID — all 64 World Cup 2022 matches.
+# Generated from PFF Metadata/<id>.json + StatsBomb event data;
+# verified 1:1 by team names (goal count disambiguates CRO-MAR x2).
 SB_TO_PFF = {
-    3869685: 10517,  # Final — Argentina vs France
-    3869684: 10516,  # 3rd Place — Croatia vs Morocco
-    3869552: 10515,  # Semi — France vs Morocco
-    3869519: 10514,  # Semi — Argentina vs Croatia
-    3869354: 10513,  # QF — England vs France
-    3869486: 10512,  # QF — Morocco vs Portugal
-    3869321: 10511,  # QF — Netherlands vs Argentina
+    3869685: 10517,  # F — Argentina vs France
+    3869684: 10516,  # 3P — Croatia vs Morocco
+    3869519: 10514,  # SF — Argentina vs Croatia
+    3869552: 10515,  # SF — France vs Morocco
     3869420: 10510,  # QF — Croatia vs Brazil
+    3869321: 10511,  # QF — Netherlands vs Argentina
+    3869486: 10512,  # QF — Morocco vs Portugal
+    3869354: 10513,  # QF — England vs France
+    3869117: 10502,  # R16 — Netherlands vs United States
+    3869151: 10503,  # R16 — Argentina vs Australia
+    3869152: 10504,  # R16 — France vs Poland
+    3869118: 10505,  # R16 — England vs Senegal
+    3869219: 10506,  # R16 — Japan vs Croatia
+    3869253: 10507,  # R16 — Brazil vs South Korea
+    3869220: 10508,  # R16 — Morocco vs Spain
+    3869254: 10509,  # R16 — Portugal vs Switzerland
+    3857267: 3844,  # GS3 — Ecuador vs Senegal
+    3857294: 3845,  # GS3 — Netherlands vs Qatar
+    3857261: 3846,  # GS3 — Wales vs England
+    3857278: 3847,  # GS3 — Iran vs United States
+    3857257: 3848,  # GS3 — Australia vs Denmark
+    3857275: 3849,  # GS3 — Tunisia vs France
+    3857264: 3850,  # GS3 — Poland vs Argentina
+    3857260: 3851,  # GS3 — Saudi Arabia vs Mexico
+    3857296: 3852,  # GS3 — Croatia vs Belgium
+    3857276: 3853,  # GS3 — Canada vs Morocco
+    3857255: 3854,  # GS3 — Japan vs Spain
+    3857292: 3855,  # GS3 — Costa Rica vs Germany
+    3857293: 3856,  # GS3 — Ghana vs Uruguay
+    3857262: 3857,  # GS3 — South Korea vs Portugal
+    3857256: 3858,  # GS3 — Serbia vs Switzerland
+    3857280: 3859,  # GS3 — Cameroon vs Brazil
+    3857273: 3828,  # GS2 — Wales vs Iran
+    3857301: 3829,  # GS2 — Qatar vs Senegal
+    3857274: 3830,  # GS2 — Netherlands vs Ecuador
+    3857272: 3831,  # GS2 — England vs United States
+    3857288: 3832,  # GS2 — Tunisia vs Australia
+    3857297: 3833,  # GS2 — Poland vs Saudi Arabia
+    3857266: 3834,  # GS2 — France vs Denmark
+    3857289: 3835,  # GS2 — Argentina vs Mexico
+    3857295: 3836,  # GS2 — Japan vs Costa Rica
+    3857283: 3837,  # GS2 — Belgium vs Morocco
+    3857281: 3838,  # GS2 — Croatia vs Canada
+    3857263: 3839,  # GS2 — Spain vs Germany
+    3857259: 3840,  # GS2 — Cameroon vs Serbia
+    3857299: 3841,  # GS2 — South Korea vs Ghana
+    3857269: 3842,  # GS2 — Brazil vs Switzerland
+    3857270: 3843,  # GS2 — Portugal vs Uruguay
+    3857286: 3814,  # GS1 — Qatar vs Ecuador
+    3857285: 3812,  # GS1 — Senegal vs Netherlands
+    3857271: 3813,  # GS1 — England vs Iran
+    3857282: 3815,  # GS1 — United States vs Wales
+    3857300: 3816,  # GS1 — Argentina vs Saudi Arabia
+    3857254: 3817,  # GS1 — Denmark vs Tunisia
+    3857265: 3818,  # GS1 — Mexico vs Poland
+    3857279: 3819,  # GS1 — France vs Australia
+    3857277: 3820,  # GS1 — Morocco vs Croatia
+    3857284: 3821,  # GS1 — Germany vs Japan
+    3857291: 3822,  # GS1 — Spain vs Costa Rica
+    3857268: 3823,  # GS1 — Belgium vs Canada
+    3857290: 3824,  # GS1 — Switzerland vs Cameroon
+    3857287: 3825,  # GS1 — Uruguay vs South Korea
+    3857298: 3826,  # GS1 — Portugal vs Ghana
+    3857258: 3827,  # GS1 — Brazil vs Serbia
 }
+
+# PFF game ID → display label, ordered knockouts-first.
+PFF_MATCH_LABELS = {
+    10517: "F — Argentina vs France",
+    10516: "3P — Croatia vs Morocco",
+    10514: "SF — Argentina vs Croatia",
+    10515: "SF — France vs Morocco",
+    10510: "QF — Croatia vs Brazil",
+    10511: "QF — Netherlands vs Argentina",
+    10512: "QF — Morocco vs Portugal",
+    10513: "QF — England vs France",
+    10502: "R16 — Netherlands vs United States",
+    10503: "R16 — Argentina vs Australia",
+    10504: "R16 — France vs Poland",
+    10505: "R16 — England vs Senegal",
+    10506: "R16 — Japan vs Croatia",
+    10507: "R16 — Brazil vs South Korea",
+    10508: "R16 — Morocco vs Spain",
+    10509: "R16 — Portugal vs Switzerland",
+    3844: "GS3 — Ecuador vs Senegal",
+    3845: "GS3 — Netherlands vs Qatar",
+    3846: "GS3 — Wales vs England",
+    3847: "GS3 — Iran vs United States",
+    3848: "GS3 — Australia vs Denmark",
+    3849: "GS3 — Tunisia vs France",
+    3850: "GS3 — Poland vs Argentina",
+    3851: "GS3 — Saudi Arabia vs Mexico",
+    3852: "GS3 — Croatia vs Belgium",
+    3853: "GS3 — Canada vs Morocco",
+    3854: "GS3 — Japan vs Spain",
+    3855: "GS3 — Costa Rica vs Germany",
+    3856: "GS3 — Ghana vs Uruguay",
+    3857: "GS3 — South Korea vs Portugal",
+    3858: "GS3 — Serbia vs Switzerland",
+    3859: "GS3 — Cameroon vs Brazil",
+    3828: "GS2 — Wales vs Iran",
+    3829: "GS2 — Qatar vs Senegal",
+    3830: "GS2 — Netherlands vs Ecuador",
+    3831: "GS2 — England vs United States",
+    3832: "GS2 — Tunisia vs Australia",
+    3833: "GS2 — Poland vs Saudi Arabia",
+    3834: "GS2 — France vs Denmark",
+    3835: "GS2 — Argentina vs Mexico",
+    3836: "GS2 — Japan vs Costa Rica",
+    3837: "GS2 — Belgium vs Morocco",
+    3838: "GS2 — Croatia vs Canada",
+    3839: "GS2 — Spain vs Germany",
+    3840: "GS2 — Cameroon vs Serbia",
+    3841: "GS2 — South Korea vs Ghana",
+    3842: "GS2 — Brazil vs Switzerland",
+    3843: "GS2 — Portugal vs Uruguay",
+    3814: "GS1 — Qatar vs Ecuador",
+    3812: "GS1 — Senegal vs Netherlands",
+    3813: "GS1 — England vs Iran",
+    3815: "GS1 — United States vs Wales",
+    3816: "GS1 — Argentina vs Saudi Arabia",
+    3817: "GS1 — Denmark vs Tunisia",
+    3818: "GS1 — Mexico vs Poland",
+    3819: "GS1 — France vs Australia",
+    3820: "GS1 — Morocco vs Croatia",
+    3821: "GS1 — Germany vs Japan",
+    3822: "GS1 — Spain vs Costa Rica",
+    3823: "GS1 — Belgium vs Canada",
+    3824: "GS1 — Switzerland vs Cameroon",
+    3825: "GS1 — Uruguay vs South Korea",
+    3826: "GS1 — Portugal vs Ghana",
+    3827: "GS1 — Brazil vs Serbia",
+}
+
+
+# ---- 0b. Tracking file resolution (two folders on disk) ----
+TRACKING_SUBDIRS = ("Tracking Data", "Tracking Data 2")
+
+
+def resolve_tracking_path(game_id: int) -> Path | None:
+    """Return the tracking file for a game, searching both tracking folders."""
+    for sub in TRACKING_SUBDIRS:
+        p = DATA_DIR / sub / f"{game_id}.jsonl.bz2"
+        if p.exists():
+            return p
+    return None
+
+
+def pff_matches_with_tracking() -> list[int]:
+    """All PFF game IDs with a tracking file on disk, knockouts first."""
+    return [gid for gid in PFF_MATCH_LABELS if resolve_tracking_path(gid) is not None]
 
 
 # ---- 1. Coordinate transform ----
@@ -117,6 +261,9 @@ def load_pff_match(game_id: int) -> dict:
         "home_team_id": home_team_id,
         "away_team_id": away_team_id,
         "home_starts_left": bool(metadata.get("homeTeamStartLeft", True)),
+        # None for matches without extra time; True means the home team
+        # attacks right in period 3 (verified empirically on 10511/10517)
+        "home_starts_left_et": metadata.get("homeTeamStartLeftExtraTime"),
         "fps": metadata.get("fps", 30.0),
         "pitch_length": metadata["stadium"]["pitches"][0]["length"],
         "pitch_width": metadata["stadium"]["pitches"][0]["width"],
@@ -191,19 +338,45 @@ def extract_pff_passes(
         events = json.load(f)
 
     # ── Optionally load tracking data for velocity vectors ─────────
+    # Only frames within ±0.6 s of a pass are ever looked up (the pass
+    # frame plus the 5-frame velocity lookback), so stream the file and
+    # keep just those windows: ~10x faster than parsing every frame and
+    # avoids holding the whole match (multi-GB) in memory.
     frame_lookup: dict[int, dict] = {}
     if with_velocities:
-        tracking_path = DATA_DIR / "Tracking Data" / f"{game_id}.jsonl.bz2"
-        if tracking_path.exists():
-            with bz2.open(tracking_path, "rt") as tf:
+        t_path = resolve_tracking_path(game_id)
+        if t_path is not None:
+            windows = sorted(
+                (e["startTime"] * 1000.0 - 600.0, e["startTime"] * 1000.0 + 600.0)
+                for e in events
+                if (e.get("possessionEvents") or {}).get("possessionEventType") == "PA"
+                and e.get("startTime") is not None
+            )
+            merged: list[list[float]] = []
+            for lo, hi in windows:
+                if merged and lo <= merged[-1][1]:
+                    merged[-1][1] = max(hi, merged[-1][1])
+                else:
+                    merged.append([lo, hi])
+            window_lows = [w[0] for w in merged]
+            vt_pattern = re.compile(r'"videoTimeMs":\s*([0-9.]+)')
+
+            with bz2.open(t_path, "rt") as tf:
                 for line in tf:
+                    m = vt_pattern.search(line)
+                    if not m:
+                        continue
+                    vt = float(m.group(1))
+                    i = bisect.bisect_right(window_lows, vt) - 1
+                    if i < 0 or vt > merged[i][1]:
+                        continue
                     try:
                         fr = json.loads(line)
-                        fn = fr.get("frameNum")
-                        if fn is not None:
-                            frame_lookup[fn] = fr
                     except json.JSONDecodeError:
                         continue
+                    fn = fr.get("frameNum")
+                    if fn is not None:
+                        frame_lookup[fn] = fr
 
     match_info = load_pff_match(game_id)
     jersey_map = match_info["jersey_to_player"]
@@ -384,6 +557,7 @@ def extract_pff_passes(
             "is_home": is_home,
             "period": period,
             "home_starts_left": match_info.get("home_starts_left", True),
+            "home_starts_left_et": match_info.get("home_starts_left_et"),
         })
 
     return pd.DataFrame(records)
@@ -438,8 +612,16 @@ def pff_pass_to_spatial(row: pd.Series) -> dict:
     period = int(row.get("period", 1))
     home_starts_left = row.get("home_starts_left", True)
 
-    # Period 1/3/5 (odd) → home starts left; Period 2/4 (even) → sides swap
-    home_attacks_right = home_starts_left if period % 2 == 1 else not home_starts_left
+    if period >= 3:
+        # Extra time: ends are re-drawn at the ET coin toss, so regulation
+        # parity is not a rule. PFF metadata records the ET orientation
+        # explicitly; fall back to parity when the field is absent.
+        hsl_et = row.get("home_starts_left_et")
+        hsl_base = bool(hsl_et) if hsl_et is not None else home_starts_left
+        home_attacks_right = hsl_base if period == 3 else not hsl_base
+    else:
+        # Period 1 → homeTeamStartLeft; Period 2 → sides swap
+        home_attacks_right = home_starts_left if period % 2 == 1 else not home_starts_left
     attack_right = home_attacks_right if is_home else not home_attacks_right
 
     return {
@@ -490,8 +672,8 @@ def load_tracking_window(
       - ball: (sb_x, sb_y) or None
     Sorted by time_offset (earliest first).
     """
-    tracking_path = DATA_DIR / "Tracking Data" / f"{game_id}.jsonl.bz2"
-    if not tracking_path.exists():
+    t_path = resolve_tracking_path(game_id)
+    if t_path is None:
         return []
 
     target_ms = int(pass_start_time * 1000)
@@ -499,7 +681,7 @@ def load_tracking_window(
     window_end_ms = target_ms + int(window_after * 1000)
 
     frames: list[dict] = []
-    with bz2.open(tracking_path, "rt") as tf:
+    with bz2.open(t_path, "rt") as tf:
         for line in tf:
             try:
                 fr = json.loads(line)

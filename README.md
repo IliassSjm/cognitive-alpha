@@ -22,7 +22,7 @@ where the expected value of a target location combines five surfaces evaluated o
 
 **Data fusion** (`pff_loader.py`, `tracking_analytics.py`). Two sources under one coordinate system: StatsBomb 360 freeze-frames (via `statsbombpy`) and PFF FC 30 fps broadcast tracking, which supplies real player velocities and body orientation for the matches where it exists. The tracking data (~5 GB) is used under PFF's research access program and is not redistributed here; the code expects it under `External_Data/`.
 
-**Dashboard** (`app.py`). `streamlit run app.py` — 16 knockout matches, pass-by-pass surfaces, animated pre-pass tracking replays at 30 fps, per-player decision-quality aggregation.
+**Dashboard** (`app.py`). `streamlit run app.py` — all 64 World Cup matches (knockouts first), pass-by-pass surfaces, animated pre-pass tracking replays at 30 fps, per-player decision-quality aggregation.
 
 ## Validation
 
@@ -35,7 +35,7 @@ where the expected value of a target location combines five surfaces evaluated o
 
 ![Validation](figures/model_validation_pff.png)
 
-Headline numbers on the 8-match PFF sample (8,843 passes): the top-alpha tercile posts the highest completion rate in three of four distance bins (92.3% vs 84.4% on 10–20 yd passes); on disagreement passes (n = 3,289), players who chose the model's target generated more shots (6.2% vs 5.0%) and broke twice as many defensive lines (0.18 vs 0.09 per pass) at a lower completion rate (83.1% vs 87.9%) — the model prices risk/reward, not safety. The shot-rate gap is directional (z ≈ 1.4), not statistically significant.
+Headline numbers on the full tournament (all 64 matches, 66,348 passes with 30 fps tracking context): the top-alpha tercile posts the highest completion rate in three of four distance bins (91.1% vs 84.6% on 10–20 yd passes; the 35+ yd bin inverts — a stated limitation). On disagreement passes (n = 25,104), players who chose the model's target generated more shots within the possession (6.1% vs 4.8%, z = 4.4, p < 0.001) and broke 2.4x as many defensive lines (0.19 vs 0.08 per pass) at a lower completion rate (81.0% vs 89.5%) — the model prices risk/reward, not safety. Its optimum lands within 12 yards of the PFF scout's tagged "better option" on 33.9% of the 224 annotated passes.
 
 One limitation to state plainly: even with intended-target evaluation, alpha embeds the completion probability of the chosen target, so the raw alpha–success correlation (r ≈ 0.03 on de-leaked data) is uninformative by itself. The distance-controlled and downstream-outcome checks carry the weight, and the scout-agreement axis is the most independent of the four.
 
