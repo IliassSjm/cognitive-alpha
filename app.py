@@ -723,7 +723,7 @@ def create_tracking_replay(
     # Title
     ax.set_title(
         f"{passer_name} → {recipient_name}  ({minute}:{second:02d})\n"
-        f"📡 PFF 30fps Tracking • {len(tracking_frames)} raw frames",
+        f"PFF 30fps Tracking • {len(tracking_frames)} raw frames",
         color="#aaaaaa", fontsize=10, pad=10,
     )
 
@@ -839,7 +839,7 @@ def create_tracking_replay(
         # Phase 2: Heatmap eruption (n_track to n_track + ERUPTION)
         elif frame_idx < n_track + ERUPTION_FRAMES:
             erupt_progress = (frame_idx - n_track) / max(ERUPTION_FRAMES - 1, 1)
-            timer_text.set_text("🗺️ xEV Surface")
+            timer_text.set_text("xEV Surface")
 
             # Keep final player positions
             last = anim_frames[-1]
