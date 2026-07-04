@@ -74,3 +74,56 @@ def test_offside_zone_is_penalized_and_not_preferred():
     # with a legal option available, the optimum never lands offside
     assert res["opt_x"] <= 61.0
     assert res["opt_xev"] > 0.0
+
+
+# ---- PFF ↔ StatsBomb integration invariants ----------------------------
+# These two tests pin down bugs that once shipped: a duplicated (and wrong)
+# SB→PFF mapping in app.py, and a missing y-flip in the coordinate transform.
+
+def test_pff_to_statsbomb_transform():
+    from pff_loader import pff_to_statsbomb
+
+    # centre spot maps to centre spot
+    assert np.allclose(pff_to_statsbomb(0.0, 0.0), (60.0, 40.0))
+    # PFF +y and StatsBomb +y are OPPOSITE: pff (0, +34) is sb y=0,
+    # pff (0, -34) is sb y=80 (verified against 752 paired passes of
+    # the Final: ~5 yd residual with the flip, 35-70 yd without)
+    assert np.allclose(pff_to_statsbomb(-52.5, 34.0), (0.0, 0.0))
+    assert np.allclose(pff_to_statsbomb(52.5, -34.0), (120.0, 80.0))
+    # x is monotone increasing, y monotone decreasing in pff inputs
+    assert pff_to_statsbomb(10.0, 0.0)[0] > pff_to_statsbomb(-10.0, 0.0)[0]
+    assert pff_to_statsbomb(0.0, 10.0)[1] < pff_to_statsbomb(0.0, -10.0)[1]
+
+
+def test_sb_to_pff_mapping_matches_fixtures():
+    from pff_loader import SB_TO_PFF, PFF_KEY_MATCHES, DATA_DIR
+    import json
+
+    # ground truth derived from PFF Metadata/<id>.json home/away team names
+    # and StatsBomb event team names (do not edit without re-verifying both)
+    expected = {
+        3869685: 10517,  # Argentina vs France
+        3869684: 10516,  # Croatia vs Morocco
+        3869552: 10515,  # France vs Morocco
+        3869519: 10514,  # Argentina vs Croatia
+        3869354: 10513,  # England vs France
+        3869486: 10512,  # Morocco vs Portugal
+        3869321: 10511,  # Netherlands vs Argentina
+        3869420: 10510,  # Croatia vs Brazil
+    }
+    assert SB_TO_PFF == expected
+    assert set(SB_TO_PFF.values()) == set(PFF_KEY_MATCHES.keys())
+
+    # when the raw metadata is on disk, re-verify labels against it
+    meta_dir = DATA_DIR / "Metadata"
+    if meta_dir.exists():
+        for pff_id, label in PFF_KEY_MATCHES.items():
+            meta_path = meta_dir / f"{pff_id}.json"
+            if not meta_path.exists():
+                continue
+            with open(meta_path) as f:
+                meta = json.load(f)
+            if isinstance(meta, list):
+                meta = meta[0]
+            assert meta["homeTeam"]["name"] in label, (pff_id, label)
+            assert meta["awayTeam"]["name"] in label, (pff_id, label)

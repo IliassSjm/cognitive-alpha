@@ -9,7 +9,7 @@ Coordinate Transform:
   StatsBomb: origin at bottom-left, yards     (x ∈ [0, 120], y ∈ [0, 80])
 
   sb_x = (pff_x + 52.5) / 105 * 120
-  sb_y = (pff_y + 34.0) / 68 * 80
+  sb_y = 80 - (pff_y + 34.0) / 68 * 80    (PFF +y is opposite to StatsBomb +y)
 """
 
 import json
@@ -39,12 +39,31 @@ PFF_KEY_MATCHES = {
     10510: "QF — Croatia vs Brazil",
 }
 
+# StatsBomb match ID → PFF game ID
+# Single source of truth — verified against PFF Metadata/<id>.json team names
+# and StatsBomb event data team names for all 8 matches.
+SB_TO_PFF = {
+    3869685: 10517,  # Final — Argentina vs France
+    3869684: 10516,  # 3rd Place — Croatia vs Morocco
+    3869552: 10515,  # Semi — France vs Morocco
+    3869519: 10514,  # Semi — Argentina vs Croatia
+    3869354: 10513,  # QF — England vs France
+    3869486: 10512,  # QF — Morocco vs Portugal
+    3869321: 10511,  # QF — Netherlands vs Argentina
+    3869420: 10510,  # QF — Croatia vs Brazil
+}
+
 
 # ---- 1. Coordinate transform ----
 def pff_to_statsbomb(x_m: float, y_m: float) -> tuple[float, float]:
-    """Convert PFF pitch-centered meters to StatsBomb yards."""
+    """Convert PFF pitch-centered meters to StatsBomb yards.
+
+    PFF +y and StatsBomb +y point in opposite directions, so y is
+    flipped. Verified empirically: 752 passes of the Final paired
+    across both datasets agree to ~5 yd with the flip (35-70 yd without).
+    """
     sb_x = (x_m + PITCH_LENGTH_M / 2) / PITCH_LENGTH_M * SB_X_MAX
-    sb_y = (y_m + PITCH_WIDTH_M / 2) / PITCH_WIDTH_M * SB_Y_MAX
+    sb_y = SB_Y_MAX - (y_m + PITCH_WIDTH_M / 2) / PITCH_WIDTH_M * SB_Y_MAX
     return sb_x, sb_y
 
 

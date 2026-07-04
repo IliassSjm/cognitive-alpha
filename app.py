@@ -46,6 +46,7 @@ from pff_loader import (
     load_tracking_window,
     extract_tracking_sequence,
     PFF_KEY_MATCHES,
+    SB_TO_PFF,
 )
 from tracking_analytics import analyse_match as analyse_tracking_match
 
@@ -80,17 +81,8 @@ KEY_MATCHES = {
     3869684: "3rd Place — Croatia vs Morocco",
 }
 
-# StatsBomb match ID → PFF game ID mapping
-SB_TO_PFF = {
-    3869685: 10517,  # Final
-    3869519: 10515,  # Semi ARG v CRO
-    3869552: 10514,  # Semi FRA v MAR
-    3869354: 10512,  # QF ENG v FRA
-    3869321: 10513,  # QF NED v ARG
-    3869420: 10510,  # QF CRO v BRA
-    3869486: 10511,  # QF MAR v POR
-    3869684: 10516,  # 3rd place
-}
+# StatsBomb match ID → PFF game ID mapping: imported from pff_loader.SB_TO_PFF
+# (single source of truth, verified against PFF metadata team names)
 
 # ---- 2. CACHED DATA LOADING ----
 @st.cache_data(show_spinner="Loading StatsBomb 360 data …")
@@ -1071,7 +1063,14 @@ def main():
     merged = pd.DataFrame()
 
     if use_pff:
-        pff_passes = extract_pff_passes(10517)
+        selected_pff_id = SB_TO_PFF.get(selected_match_id)
+        if selected_pff_id is None:
+            st.warning(
+                "No PFF tracking coverage for this match. "
+                "Choose a QF/Semi/Final/3rd-place match or switch to StatsBomb 360."
+            )
+            return
+        pff_passes = extract_pff_passes(selected_pff_id)
         if pff_passes.empty:
             st.warning("No PFF data loaded.")
             return
@@ -1527,8 +1526,9 @@ def main():
                             st.warning("No tracking frames found for this window.")
                             gif_bytes = b""
                         else:
-                            # Determine possession side
-                            ge_home = pff_row.get("team", "") == "home"
+                            # Determine possession side ("team" holds the team
+                            # name, e.g. "Argentina" — use the is_home boolean)
+                            ge_home = bool(pff_row.get("is_home", False))
 
                             with st.spinner(
                                 f"Rendering {len(tracking_frames)} tracking frames…"
@@ -1739,7 +1739,7 @@ def main():
         st.subheader("📡 PFF Tracking Deep Dive")
         st.caption("30fps tracking data → Off-Ball Sprint Quality + Pass Availability")
 
-        # SB_TO_PFF is defined at module level
+        # SB_TO_PFF is imported at module level from pff_loader
 
         pff_game_id = SB_TO_PFF.get(selected_match_id)
         if pff_game_id is None:
