@@ -39,6 +39,18 @@ Headline numbers on the full tournament (all 64 matches, 66,348 passes with 30 f
 
 One limitation to state plainly: even with intended-target evaluation, alpha embeds the completion probability of the chosen target, so the raw alpha–success correlation (r ≈ 0.02 on de-leaked data) is uninformative by itself. The distance-controlled and downstream-outcome checks carry the weight, and the scout-agreement axis is the most independent of the four.
 
+### Cross-competition replication
+
+The same validation was run on three dataset × source cells (shot rates are not comparable *across* sources — the two validators use different look-ahead definitions):
+
+| Dataset | Input | Passes | Top-α tercile best completion | Disagreement shot gap |
+|---|---|---|---|---|
+| WC 2022 | PFF full tracking | 66,348 | 3 of 4 distance bins | +1.3pt (6.1% vs 4.8%), **z = 4.4** |
+| WC 2022 | 360 freeze frames | 22,688 | **4 of 4** distance bins | +1.3pt (12.8% vs 11.5%), z = 1.6 |
+| Women's Euro 2025 | 360 freeze frames | 10,610 | **4 of 4** distance bins | +1.3pt (17.2% vs 15.9%), z = 1.0 |
+
+Reading this honestly: the completion gradient replicates everywhere — on a new tournament, a new gender and a degraded input, without retraining anything. The shot-generation edge is directionally positive in every cell but statistically significant only with full tracking. A paired analysis on the same WC passes with the same outcome (n = 5,717 matched across both pipelines) shows positive gaps for both input types (+1.7pt / +0.8pt) that are individually non-significant at that sample size — so whether the attenuation is input fidelity or outcome definition remains open. Figures: `figures/model_validation.png` (WC, freeze frames) and `figures/model_validation_c53s315.png` (Women's Euro 2025).
+
 ## Other competitions
 
 The engine is competition-agnostic in StatsBomb 360 mode. The dashboard's "Other StatsBomb 360" picker lists every open-data competition with freeze frames at runtime (Euro 2024, Women's Euro 2025, AFCON 2023, ...) — nothing to hardcode. The CLI tools take explicit IDs (discover them via `sb.competitions()`):
